@@ -8,6 +8,10 @@
 
 ---
 
+## Why "parlai"
+
+A **parley** is a conference between opposing sides — historically, the negotiation under a flag of truce before a battle resumes. Sailors parleyed, generals parleyed, and now you parley with **ai**: every chat with ChatGPT, Claude, Gemini, Perplexity is its own little negotiation. **parlai** is one place to keep the record of all of them.
+
 ## What it is
 
 `parlai` is a single command-line tool that lets you list, fetch, and search your conversation history across every AI chat product you use — ChatGPT, Claude.ai, Gemini, Google AI Studio, Perplexity, Codex (CLI + Desktop), and Claude Code's local sessions — from one place.
