@@ -11,8 +11,21 @@ from rich.table import Table
 
 from parlai import db, providers
 from parlai.auth import manual_set
+from parlai.dates import parse_date
 from parlai.paths import ensure, raw_path
 from parlai.render import to_markdown
+
+
+def _date_filter_iter(it, since: int | None, until: int | None):
+    """Yield from `it` while `updated_at` is in [since, until]; break early when we
+    drop past `since` (assumes iterator is newest-first, which all providers honour)."""
+    for row in it:
+        upd = row.get("updated_at") or 0
+        if until is not None and upd > until:
+            continue  # newer than range — keep walking back
+        if since is not None and upd and upd < since:
+            return  # walked past the lower bound; stop paging
+        yield row
 
 app = typer.Typer(no_args_is_help=True, help="Unified CLI for personal AI chat history.")
 console = Console()
@@ -75,18 +88,34 @@ def list_cmd(
     remote: bool = typer.Option(
         False, "--remote", help="Hit the provider API instead of the local DB"
     ),
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Only conversations on/after this date (ISO or relative: 7d, 2w, 1y)"
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="Only conversations on/before this date"
+    ),
 ) -> None:
     """List recent conversations from a provider."""
     _ensure_db()
     p = providers.get(provider)
+    since_ms = parse_date(since)
+    until_ms = parse_date(until)
     table = Table()
     table.add_column("id", overflow="fold")
     table.add_column("updated")
     table.add_column("title")
     if remote:
-        rows = list(p.list(limit=limit))
+        # Walk pagination back until we cross --since (or hit limit). Cap the
+        # internal pager generously so we can keep paging when --since is old.
+        page_cap = max(limit, 5000) if since_ms or until_ms else limit
+        it = _date_filter_iter(p.list(limit=page_cap), since_ms, until_ms)
+        rows = []
+        for r in it:
+            rows.append(r)
+            if len(rows) >= limit:
+                break
     else:
-        rows = db.list_conversations(provider, limit=limit)
+        rows = db.list_conversations(provider, limit=limit, since=since_ms, until=until_ms)
     for row in rows:
         upd = row.get("updated_at")
         upd_str = (
@@ -160,6 +189,12 @@ def search(
         "-c",
         help="Also fetch and include the full conversation body for each hit (deduplicated)",
     ),
+    since: Optional[str] = typer.Option(
+        None, "--since", help="Only results on/after this date (ISO or relative: 7d, 2w, 1y)"
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="Only results on/before this date"
+    ),
 ) -> None:
     """Search conversations.
 
@@ -168,18 +203,46 @@ def search(
     Use --local to force the cached FTS5 index across all providers.
     """
     _ensure_db()
+    since_ms = parse_date(since)
+    until_ms = parse_date(until)
     if local:
         if not json_out:
             _warn_if_stale(provider)
-        hits = db.search_local(query, provider=provider, limit=limit)
+        hits = db.search_local(
+            query, provider=provider, limit=limit, since=since_ms, until=until_ms
+        )
     elif provider:
         hits = _provider_search_with_fallback(provider, query, limit, quiet=json_out)
     else:
         hits = _fanout_search(query, limit=limit, quiet=json_out)
+    # Native search APIs don't accept date filters — post-filter the hits
+    # (we only have updated_at on local-cached metadata, so this is best-effort)
+    if not local and (since_ms is not None or until_ms is not None):
+        hits = [h for h in hits if _hit_in_range(h, since_ms, until_ms)]
     if content:
         _render_hits_with_content(hits, json_out=json_out)
     else:
         _render_hits(hits, json_out=json_out)
+
+
+def _hit_in_range(hit: dict, since_ms: int | None, until_ms: int | None) -> bool:
+    upd = hit.get("updated_at")
+    if upd is None:
+        # Look it up in the local DB if we have it cached
+        with db.connect() as c:
+            row = c.execute(
+                "SELECT updated_at FROM conversations WHERE provider=? AND id=?",
+                (hit.get("provider"), hit.get("id") or hit.get("conv_id")),
+            ).fetchone()
+            upd = row["updated_at"] if row else None
+    if upd is None:
+        # No timestamp known — keep the hit (don't silently drop)
+        return True
+    if since_ms is not None and upd < since_ms:
+        return False
+    if until_ms is not None and upd > until_ms:
+        return False
+    return True
 
 
 def _provider_search_with_fallback(
@@ -429,12 +492,23 @@ def sync(
         "--limit",
         help="Max conversations to enumerate per provider (ignored with --full)",
     ),
+    since: Optional[str] = typer.Option(
+        None,
+        "--since",
+        help="Only sync conversations on/after this date — walks pagination back until reached",
+    ),
+    until: Optional[str] = typer.Option(
+        None, "--until", help="Skip conversations newer than this date"
+    ),
 ) -> None:
     """Pull conversations from provider(s) into the local DB."""
     _ensure_db()
     targets = [provider] if provider else providers.all_names()
-    # --full means *truly* full: no limit cap, no watermark
-    effective_limit = 10**9 if full else limit
+    since_ms = parse_date(since)
+    until_ms = parse_date(until)
+    # --full means *truly* full: no limit cap, no watermark.
+    # --since also implies a deeper walk than the default 500.
+    effective_limit = 10**9 if (full or since_ms) else limit
     for name in targets:
         try:
             p = providers.get(name)
@@ -444,11 +518,15 @@ def sync(
         if not p.authed():
             console.print(f"[yellow]skip {name}: not authed[/yellow]")
             continue
-        watermark = None if full else db.get_watermark(name)
+        # If --since is set, ignore the watermark — the user wants a date-bounded backfill
+        watermark = None if (full or since_ms) else db.get_watermark(name)
         new_watermark = watermark or 0
         count = 0
         console.print(f"[cyan]{name}:[/cyan] listing…")
-        for summary in p.list(limit=effective_limit):
+        list_iter = p.list(limit=effective_limit)
+        if since_ms is not None or until_ms is not None:
+            list_iter = _date_filter_iter(list_iter, since_ms, until_ms)
+        for summary in list_iter:
             upd = summary.get("updated_at") or 0
             cid = summary["id"]
             if watermark and upd <= watermark:

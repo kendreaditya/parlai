@@ -130,44 +130,63 @@ def set_sync_state(provider: str, last_sync_at: int, watermark: int | None) -> N
         )
 
 
-def search_local(query: str, provider: str | None = None, limit: int = 25) -> list[dict]:
+def search_local(
+    query: str,
+    provider: str | None = None,
+    limit: int = 25,
+    since: int | None = None,
+    until: int | None = None,
+) -> list[dict]:
+    where = ["messages_fts MATCH ?"]
+    args: list = [query]
+    if provider:
+        where.append("m.provider = ?")
+        args.append(provider)
+    if since is not None:
+        where.append("conv.updated_at >= ?")
+        args.append(since)
+    if until is not None:
+        where.append("conv.updated_at <= ?")
+        args.append(until)
+    args.append(limit)
+    sql = f"""
+        SELECT m.provider, m.conv_id, m.role,
+               snippet(messages_fts, 0, '<<', '>>', '…', 16) AS snip,
+               conv.title, conv.url, conv.updated_at
+        FROM messages_fts m
+        JOIN conversations conv ON conv.provider = m.provider AND conv.id = m.conv_id
+        WHERE {' AND '.join(where)}
+        ORDER BY rank
+        LIMIT ?
+    """
     with connect() as c:
-        if provider:
-            rows = c.execute(
-                """SELECT m.provider, m.conv_id, m.role, snippet(messages_fts, 0, '<<', '>>', '…', 16) AS snip,
-                          conv.title, conv.url, conv.updated_at
-                   FROM messages_fts m
-                   JOIN conversations conv ON conv.provider = m.provider AND conv.id = m.conv_id
-                   WHERE messages_fts MATCH ? AND m.provider = ?
-                   ORDER BY rank
-                   LIMIT ?""",
-                (query, provider, limit),
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """SELECT m.provider, m.conv_id, m.role, snippet(messages_fts, 0, '<<', '>>', '…', 16) AS snip,
-                          conv.title, conv.url, conv.updated_at
-                   FROM messages_fts m
-                   JOIN conversations conv ON conv.provider = m.provider AND conv.id = m.conv_id
-                   WHERE messages_fts MATCH ?
-                   ORDER BY rank
-                   LIMIT ?""",
-                (query, limit),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in c.execute(sql, args).fetchall()]
 
 
-def list_conversations(provider: str, limit: int = 30) -> list[dict]:
+def list_conversations(
+    provider: str,
+    limit: int = 30,
+    since: int | None = None,
+    until: int | None = None,
+) -> list[dict]:
+    where = ["provider = ?"]
+    args: list = [provider]
+    if since is not None:
+        where.append("updated_at >= ?")
+        args.append(since)
+    if until is not None:
+        where.append("updated_at <= ?")
+        args.append(until)
+    args.append(limit)
+    sql = f"""
+        SELECT provider, id, title, url, created_at, updated_at
+        FROM conversations
+        WHERE {' AND '.join(where)}
+        ORDER BY updated_at DESC NULLS LAST
+        LIMIT ?
+    """
     with connect() as c:
-        rows = c.execute(
-            """SELECT provider, id, title, url, created_at, updated_at
-               FROM conversations
-               WHERE provider=?
-               ORDER BY updated_at DESC NULLS LAST
-               LIMIT ?""",
-            (provider, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in c.execute(sql, args).fetchall()]
 
 
 def stats() -> list[dict]:
