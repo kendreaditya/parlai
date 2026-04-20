@@ -82,6 +82,8 @@ Storage layout:
 
 Issues and PRs welcome at <https://github.com/kendreaditya/parlai>.
 
+For design rationale, module structure, per-provider deep dives, and a step-by-step guide to adding a new provider, see [`docs/`](docs/README.md).
+
 To add a new provider:
 
 1. Capture a HAR from the provider's web app (DevTools → Network → right-click → Save All as HAR).
