@@ -1,6 +1,6 @@
 [project]
 name = "parlai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Unified CLI for personal AI chat history across ChatGPT, Claude, Gemini, AI Studio, Perplexity, and Claude Code."
 requires-python = ">=3.11"
 dependencies = [
@@ -12,9 +12,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Gemini support — pulls in orjson/curl-cffi which need Rust/C build toolchains.
-# Install separately if you want it: `pip install parlai[gemini]`
-gemini = ["gemini-webapi>=2.0.0"]
 # Asset/font generation tooling (only needed when regenerating logos)
 assets = ["fonttools>=4.62.1"]
 
