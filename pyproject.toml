@@ -1,6 +1,6 @@
 [project]
 name = "parlai"
-version = "0.1.2"
+version = "0.2.0"
 description = "Unified CLI for personal AI chat history across ChatGPT, Claude, Gemini, AI Studio, Perplexity, and Claude Code."
 requires-python = ">=3.11"
 dependencies = [

@@ -122,7 +122,37 @@ class _CodexBase:
         )
 
     def search(self, query: str, limit: int = 25) -> list[SearchHit]:
-        return []  # use local FTS
+        """Scan all rollout JSONL files under this originator for `query`."""
+        q = query.lower()
+        hits: list[SearchHit] = []
+        for p in self._files():
+            ok, meta = self._matches(p)
+            if not ok:
+                continue
+            try:
+                text = p.read_text(errors="replace")
+            except OSError:
+                continue
+            low = text.lower()
+            idx = low.find(q)
+            if idx < 0:
+                continue
+            start = max(0, idx - 60)
+            end = min(len(text), idx + len(q) + 180)
+            snippet = text[start:end].replace("\n", " ")
+            off = idx - start
+            snippet = snippet[:off] + "<<" + snippet[off:off+len(q)] + ">>" + snippet[off+len(q):]
+            title = _derive_title(p, fallback=meta.get("cwd"))
+            hits.append(SearchHit(
+                provider=self.name,
+                id=meta.get("id") or p.stem,
+                title=title,
+                snippet=snippet[:280],
+                url=None,
+            ))
+            if len(hits) >= limit:
+                break
+        return hits
 
     def url_for(self, conv_id: str) -> str | None:
         return None

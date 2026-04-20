@@ -113,8 +113,36 @@ class ClaudeCodeProvider:
         )
 
     def search(self, query: str, limit: int = 25) -> list[SearchHit]:
-        # No native search; CLI falls back to local FTS5
-        return []
+        """Scan all session JSONL files for `query` (case-insensitive substring).
+        Returns one hit per matching file with a small snippet around the match."""
+        q = query.lower()
+        hits: list[SearchHit] = []
+        for p in self._files():
+            try:
+                text = p.read_text(errors="replace")
+            except OSError:
+                continue
+            low = text.lower()
+            idx = low.find(q)
+            if idx < 0:
+                continue
+            start = max(0, idx - 60)
+            end = min(len(text), idx + len(q) + 180)
+            snippet = text[start:end].replace("\n", " ")
+            # wrap the match in FTS-style <<...>> so the renderer can highlight
+            off = idx - start
+            snippet = snippet[:off] + "<<" + snippet[off:off+len(q)] + ">>" + snippet[off+len(q):]
+            title = self._title_from_file(p) or p.stem
+            hits.append(SearchHit(
+                provider=self.name,
+                id=p.stem,
+                title=title,
+                snippet=snippet[:280],
+                url=None,
+            ))
+            if len(hits) >= limit:
+                break
+        return hits
 
     def url_for(self, conv_id: str) -> str | None:
         return None

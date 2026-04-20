@@ -46,26 +46,19 @@ parlai login claude   # interactive — explains which cookie to copy
 ## How it works
 
 ```bash
-parlai status                                # who's authed + indexed counts
-parlai list claude [-n 20] [--remote]        # recent conversations (local DB or live API)
+parlai status                                # who's authed
+parlai list claude [-n 20]                   # recent conversations from the provider
 parlai get claude <id> [-f md|json] [-o]     # full conversation
-parlai search "sombrero"                     # fan out remote search across every authed provider
-parlai search -p claude "india"              # one provider's native search
-parlai search "sombrero" --content --json    # search + fetch full bodies as JSONL (LLM-friendly)
-parlai search "x" --local                    # cached FTS5 (faster; needs prior sync)
-parlai sync claude --full                    # mirror every conversation into local SQLite
+parlai search "sombrero"                     # fan out across every authed provider
+parlai search -p claude "india"              # one provider
+parlai search "sombrero" --content --json    # search + fetch full bodies as JSONL
+parlai search "x" --since 7d --until today   # date-filtered
 parlai open chatgpt <id>                     # open in browser
-parlai login <provider>                      # interactive cookie capture (when Chrome auto-detect fails)
+parlai login <provider>                      # interactive cookie paste
 parlai --verbose <cmd>                       # log warnings to stderr
 ```
 
-**Default = remote.** Live provider APIs are hit on every `search` so you don't need to sync first. For local-only providers (claude-code, codex-*) the search transparently falls back to the local FTS5 index. Pass `--local` to force the cache; pass `--content` to fetch full conversation bodies inline (also caches them to disk for next time).
-
-Storage layout:
-
-- `~/.parlai/db.sqlite` — conversations + messages, FTS5 over message text
-- `~/.parlai/raw/<provider>/<id>.json` — verbatim payload per conversation
-- `~/.parlai/credentials.json` — fallback cookie store (Chrome auto-discovery is preferred)
+**No local cache.** `parlai` is stateless: every command hits the provider's web API live, or reads the local JSONL files (`claude-code`, `codex-*`) directly. There's no sync step and nothing persisted to disk except manual-login cookies at `~/.parlai/credentials.json`. Results are always fresh; the trade-off is that repeated queries re-hit the API each time.
 
 | Provider       | List API                                              | Native search                  | Auth                          |
 |----------------|-------------------------------------------------------|--------------------------------|-------------------------------|
