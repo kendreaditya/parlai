@@ -8,8 +8,8 @@ class Parlai < Formula
 
   desc "Unified CLI for personal AI chat history (ChatGPT/Claude/Gemini/AI Studio/Perplexity/Codex/Claude Code)"
   homepage "https://github.com/kendreaditya/parlai"
-  url "https://github.com/kendreaditya/parlai/archive/refs/tags/v0.1.2.tar.gz"
-  sha256 "a79eed674bfd144abeb5f612cb99dc4dc020aa1c847ff37087062da1d2395bd7"
+  url "https://github.com/kendreaditya/parlai/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "030d96277b182470ea173309d0218ebb28ce562ff852847ec07c6d7a624a458f"
   license "MIT"
   head "https://github.com/kendreaditya/parlai.git", branch: "main"
 
