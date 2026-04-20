@@ -3,16 +3,13 @@
 # Install:
 #   brew tap kendreaditya/parlai https://github.com/kendreaditya/parlai
 #   brew install kendreaditya/parlai/parlai
-#
-# Optional Gemini support (separate install — needs Rust toolchain):
-#   /opt/homebrew/Cellar/parlai/<version>/libexec/bin/pip install gemini-webapi
 class Parlai < Formula
   include Language::Python::Virtualenv
 
   desc "Unified CLI for personal AI chat history (ChatGPT/Claude/Gemini/AI Studio/Perplexity/Codex/Claude Code)"
   homepage "https://github.com/kendreaditya/parlai"
-  url "https://github.com/kendreaditya/parlai/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "ebc01102d77d3f2d6906be42461ae84317340205a02bca6a3ea9f7f733bfc88e"
+  url "https://github.com/kendreaditya/parlai/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "e5b557b97a0773bd725e1049a0ed528794d2c737e8a8be53321bd30846838bbd"
   license "MIT"
   head "https://github.com/kendreaditya/parlai.git", branch: "main"
 
@@ -21,11 +18,6 @@ class Parlai < Formula
   resource "annotated-doc" do
     url "https://files.pythonhosted.org/packages/57/ba/046ceea27344560984e26a590f90bc7f4a75b06701f653222458922b558c/annotated_doc-0.0.4.tar.gz"
     sha256 "fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4"
-  end
-
-  resource "annotated-types" do
-    url "https://files.pythonhosted.org/packages/ee/67/531ea369ba64dcff5ec9c3402f9f51bf748cec26dde048a2f973a4eea7f5/annotated_types-0.7.0.tar.gz"
-    sha256 "aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89"
   end
 
   resource "anyio" do
@@ -68,11 +60,6 @@ class Parlai < Formula
     sha256 "795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902"
   end
 
-  resource "jinja2" do
-    url "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz"
-    sha256 "0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d"
-  end
-
   resource "lz4" do
     url "https://files.pythonhosted.org/packages/57/51/f1b86d93029f418033dddf9b9f79c8d2641e7454080478ee2aab5123173e/lz4-4.4.5.tar.gz"
     sha256 "5f0b9e53c1e82e88c10d7c180069363980136b9d7a8306c4dca4f760d60c39f0"
@@ -81,11 +68,6 @@ class Parlai < Formula
   resource "markdown-it-py" do
     url "https://files.pythonhosted.org/packages/5b/f5/4ec618ed16cc4f8fb3b701563655a69816155e79e24a17b651541804721d/markdown_it_py-4.0.0.tar.gz"
     sha256 "cb0a2b4aa34f932c007117b194e945bd74e0ec24133ceb5bac59009cda1cb9f3"
-  end
-
-  resource "markupsafe" do
-    url "https://files.pythonhosted.org/packages/7e/99/7690b6d4034fffd95959cbe0c02de8deb3098cc577c67bb6a24fe5d7caa7/markupsafe-3.0.3.tar.gz"
-    sha256 "722695808f4b6457b320fdc131280796bdceb04ab50fe1795cd540799ebe1698"
   end
 
   resource "mdurl" do
@@ -126,11 +108,6 @@ class Parlai < Formula
   resource "typer" do
     url "https://files.pythonhosted.org/packages/f5/24/cb09efec5cc954f7f9b930bf8279447d24618bb6758d4f6adf2574c41780/typer-0.24.1.tar.gz"
     sha256 "e39b4732d65fbdcde189ae76cf7cd48aeae72919dea1fdfc16593be016256b45"
-  end
-
-  resource "typing-extensions" do
-    url "https://files.pythonhosted.org/packages/72/94/1a15dd82efb362ac84269196e94cf00f187f7ed21c242792a923cdb1c61f/typing_extensions-4.15.0.tar.gz"
-    sha256 "0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"
   end
 
   def install
