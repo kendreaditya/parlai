@@ -176,3 +176,93 @@ def test_claude_code_parses_jsonl_session(tmp_path):
     assert len(conv.messages) == 2
     assert conv.messages[0].text == "hello"
     assert conv.messages[1].text == "hi back"
+
+
+def test_claude_code_uses_desktop_sidecar_title(tmp_path):
+    from parlai.providers import claude_code
+    from parlai.providers.claude_code import ClaudeCodeProvider
+
+    sess_dir = tmp_path / "projects" / "-Users-test-Downloads"
+    sess_dir.mkdir(parents=True)
+    sess_file = sess_dir / "abc-123.jsonl"
+    sess_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "user",
+                        "timestamp": "2026-04-19T20:00:00.000Z",
+                        "sessionId": "abc-123",
+                        "slug": "test-plan",
+                        "message": {"role": "user", "content": "hello"},
+                    }
+                )
+            ]
+        )
+    )
+
+    desktop_dir = tmp_path / "desktop" / "window-1"
+    desktop_dir.mkdir(parents=True)
+    (desktop_dir / "local-session.json").write_text(
+        json.dumps(
+            {
+                "cliSessionId": "other-session",
+                "title": "Review tax deed task and project notes",
+                "planPath": "/Users/test/.claude/plans/test-plan.md",
+            }
+        )
+    )
+
+    claude_code._desktop_title_indexes.cache_clear()
+    with patch("parlai.providers.claude_code.ROOT", tmp_path / "projects"), patch(
+        "parlai.providers.claude_code.DESKTOP_SESSION_ROOT", tmp_path / "desktop"
+    ):
+        provider = ClaudeCodeProvider()
+        listed = list(provider.list())
+        conv = provider.get("abc-123")
+        hits = provider.search("Review tax deed task and project notes")
+    claude_code._desktop_title_indexes.cache_clear()
+
+    assert listed[0]["title"] == "Review tax deed task and project notes"
+    assert conv.title == "Review tax deed task and project notes"
+    assert hits[0]["id"] == "abc-123"
+    assert hits[0]["title"] == "Review tax deed task and project notes"
+
+
+def test_claude_code_falls_back_to_first_user_prompt_title(tmp_path):
+    from parlai.providers import claude_code
+    from parlai.providers.claude_code import ClaudeCodeProvider
+
+    sess_dir = tmp_path / "-Users-test-Downloads"
+    sess_dir.mkdir()
+    sess_file = sess_dir / "cli-123.jsonl"
+    sess_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "user",
+                        "isMeta": True,
+                        "message": {"role": "user", "content": "skill boilerplate"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "timestamp": "2026-04-19T20:00:00.000Z",
+                        "message": {
+                            "role": "user",
+                            "content": "<command-name>/parlai</command-name><command-args>find Claude CLI titles</command-args>",
+                        },
+                    }
+                ),
+            ]
+        )
+    )
+
+    claude_code._desktop_title_indexes.cache_clear()
+    with patch("parlai.providers.claude_code.ROOT", tmp_path):
+        conv = ClaudeCodeProvider().get("cli-123")
+    claude_code._desktop_title_indexes.cache_clear()
+
+    assert conv.title == "find Claude CLI titles"

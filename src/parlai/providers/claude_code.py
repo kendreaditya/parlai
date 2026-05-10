@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterator
 
@@ -10,6 +12,9 @@ from parlai.models import Conversation, Message
 from parlai.providers.base import SearchHit
 
 ROOT = Path.home() / ".claude" / "projects"
+DESKTOP_SESSION_ROOT = (
+    Path.home() / "Library" / "Application Support" / "Claude" / "claude-code-sessions"
+)
 
 
 def _decode_cwd(encoded: str) -> str:
@@ -39,7 +44,10 @@ class ClaudeCodeProvider:
             }
 
     def _title_from_file(self, path: Path) -> str | None:
-        title = None
+        custom_title = None
+        summary = None
+        slug = None
+        first_user_title = None
         try:
             for line in path.read_text(errors="replace").splitlines():
                 try:
@@ -47,10 +55,16 @@ class ClaudeCodeProvider:
                 except json.JSONDecodeError:
                     continue
                 if obj.get("type") == "custom-title":
-                    title = obj.get("customTitle") or title
+                    custom_title = obj.get("customTitle") or custom_title
+                elif obj.get("type") == "summary":
+                    summary = summary or obj.get("summary")
+                if obj.get("slug"):
+                    slug = obj.get("slug")
+                if not first_user_title:
+                    first_user_title = _title_from_event(obj)
         except OSError:
             return None
-        return title
+        return _resolve_title(path.stem, custom_title, summary, slug, first_user_title)
 
     def _find_file(self, conv_id: str) -> Path | None:
         for p in self._files():
@@ -65,7 +79,10 @@ class ClaudeCodeProvider:
         return self._parse(path)
 
     def _parse(self, path: Path) -> Conversation:
-        title: str | None = None
+        custom_title: str | None = None
+        summary: str | None = None
+        slug: str | None = None
+        first_user_title: str | None = None
         messages: list[Message] = []
         idx = 0
         cwd_decoded = _decode_cwd(path.parent.name)
@@ -79,11 +96,15 @@ class ClaudeCodeProvider:
                 continue
             t = obj.get("type")
             if t == "custom-title":
-                title = obj.get("customTitle") or title
+                custom_title = obj.get("customTitle") or custom_title
                 continue
             if t == "summary":
-                title = title or obj.get("summary")
+                summary = summary or obj.get("summary")
                 continue
+            if obj.get("slug"):
+                slug = obj.get("slug")
+            if not first_user_title:
+                first_user_title = _title_from_event(obj)
             if t in ("user", "assistant"):
                 msg = obj.get("message") or {}
                 role = msg.get("role") or t
@@ -104,7 +125,7 @@ class ClaudeCodeProvider:
         return Conversation(
             provider=self.name,
             id=path.stem,
-            title=title,
+            title=_resolve_title(path.stem, custom_title, summary, slug, first_user_title),
             url=None,
             created_at=first_ts or int(stat.st_birthtime * 1000) if hasattr(stat, "st_birthtime") else first_ts,
             updated_at=last_ts or int(stat.st_mtime * 1000),
@@ -118,21 +139,32 @@ class ClaudeCodeProvider:
         q = query.lower()
         hits: list[SearchHit] = []
         for p in self._files():
+            title = self._title_from_file(p) or p.stem
             try:
                 text = p.read_text(errors="replace")
             except OSError:
                 continue
             low = text.lower()
             idx = low.find(q)
-            if idx < 0:
+            title_match = q in title.lower()
+            if idx < 0 and not title_match:
                 continue
-            start = max(0, idx - 60)
-            end = min(len(text), idx + len(q) + 180)
-            snippet = text[start:end].replace("\n", " ")
-            # wrap the match in FTS-style <<...>> so the renderer can highlight
-            off = idx - start
-            snippet = snippet[:off] + "<<" + snippet[off:off+len(q)] + ">>" + snippet[off+len(q):]
-            title = self._title_from_file(p) or p.stem
+            if title_match:
+                title_idx = title.lower().find(q)
+                snippet = (
+                    title[:title_idx]
+                    + "<<"
+                    + title[title_idx:title_idx + len(query)]
+                    + ">>"
+                    + title[title_idx + len(query):]
+                )
+            else:
+                start = max(0, idx - 60)
+                end = min(len(text), idx + len(q) + 180)
+                snippet = text[start:end].replace("\n", " ")
+                # wrap the match in FTS-style <<...>> so the renderer can highlight
+                off = idx - start
+                snippet = snippet[:off] + "<<" + snippet[off:off+len(q)] + ">>" + snippet[off+len(q):]
             hits.append(SearchHit(
                 provider=self.name,
                 id=p.stem,
@@ -146,6 +178,100 @@ class ClaudeCodeProvider:
 
     def url_for(self, conv_id: str) -> str | None:
         return None
+
+
+def _resolve_title(
+    session_id: str,
+    custom_title: str | None = None,
+    summary: str | None = None,
+    slug: str | None = None,
+    first_user_title: str | None = None,
+) -> str | None:
+    """Resolve Claude Code titles across CLI JSONL and Desktop sidecar metadata."""
+    by_cli_session, by_plan_slug = _desktop_title_indexes()
+    desktop_title = by_cli_session.get(session_id)
+    if not desktop_title and slug:
+        desktop_title = by_plan_slug.get(slug)
+    return (
+        _clean_title(custom_title)
+        or desktop_title
+        or _clean_title(summary)
+        or _clean_title(first_user_title)
+    )
+
+
+@lru_cache(maxsize=1)
+def _desktop_title_indexes() -> tuple[dict[str, str], dict[str, str]]:
+    """Return title indexes from Claude Desktop's claude-code session sidecars.
+
+    Recent Claude Desktop-backed Claude Code sessions keep UI titles outside the
+    JSONL transcript, in:
+
+      ~/Library/Application Support/Claude/claude-code-sessions/**/*.json
+
+    The direct key is `cliSessionId`; resumed/continued transcripts can also be
+    linked by the plan slug stored in `planPath`, which appears as `slug` on
+    JSONL rows.
+    """
+    by_cli_session: dict[str, str] = {}
+    by_plan_slug: dict[str, str] = {}
+    if not DESKTOP_SESSION_ROOT.exists():
+        return by_cli_session, by_plan_slug
+
+    for path in DESKTOP_SESSION_ROOT.rglob("*.json"):
+        try:
+            data = json.loads(path.read_text(errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        title = _clean_title(data.get("title"))
+        if not title:
+            continue
+
+        cli_session_id = data.get("cliSessionId")
+        if isinstance(cli_session_id, str) and cli_session_id:
+            by_cli_session[cli_session_id] = title
+
+        plan_path = data.get("planPath")
+        if isinstance(plan_path, str) and plan_path:
+            by_plan_slug[Path(plan_path).stem] = title
+
+    return by_cli_session, by_plan_slug
+
+
+def _clean_title(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _title_from_event(obj: dict) -> str | None:
+    if obj.get("type") != "user" or obj.get("isMeta"):
+        return None
+    msg = obj.get("message") or {}
+    if msg.get("role") and msg.get("role") != "user":
+        return None
+    title = _content_to_text(msg.get("content"))
+    return _clean_title(_truncate_title(_strip_command_wrappers(title)))
+
+
+def _strip_command_wrappers(text: str) -> str:
+    text = text.strip()
+    command_args = re.search(r"<command-args>(.*?)</command-args>", text, re.S)
+    if command_args:
+        text = command_args.group(1).strip()
+    text = re.sub(r"<command-(?:message|name)>.*?</command-(?:message|name)>", "", text, flags=re.S)
+    text = re.sub(r"<local-command-.*?>.*?</local-command-.*?>", "", text, flags=re.S)
+    text = re.sub(r"<[^>]+>", "", text)
+    return " ".join(text.split())
+
+
+def _truncate_title(text: str, limit: int = 120) -> str:
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit].rsplit(" ", 1)[0]
+    return (truncated or text[:limit]).rstrip() + "…"
 
 
 def _content_to_text(content) -> str:

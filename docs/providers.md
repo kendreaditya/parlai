@@ -97,7 +97,19 @@ Response IDs come in two flavors: `slug` (URL-friendly, used in user-facing URLs
 - `summary` — older format, may also set title.
 - `queue-operation`, `last-prompt`, etc. — UI bookkeeping, skip.
 
-**Title heuristic**: scan all `custom-title` events, use the last one. Falls back to `summary`. Falls back to None.
+**Title heuristic**: scan all `custom-title` events, use the last one. Then fall back to Claude Desktop sidecar titles, then older `summary` events, then the first non-meta user prompt.
+
+Plain Claude CLI sessions usually store generated/manual titles directly inside
+the transcript as `{"type":"custom-title","customTitle":"..."}`. Many CLI
+sessions never receive that event, so the provider derives a display title from
+the first real user prompt in that case.
+
+Claude Desktop-backed Claude Code sessions may store UI titles outside the
+transcript in `~/Library/Application Support/Claude/claude-code-sessions/**/*.json`.
+Those sidecars expose `title` keyed directly by `cliSessionId`; continued
+sessions can also be linked through `planPath`'s slug, which appears as `slug`
+on JSONL rows. `claude-code` reads those sidecars before falling back to
+`summary`.
 
 **No native search** — falls through to local FTS5.
 
